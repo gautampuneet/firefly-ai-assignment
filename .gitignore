@@ -1,0 +1,58 @@
+# Python related
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+env/
+venv/
+ENV/
+.venv/
+.ENV/
+
+# Installed packages
+*.egg-info/
+*.eggs/
+*.whl
+
+# Log and debugging files
+*.log
+*.out
+*.err
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.cache
+coverage.xml
+*.cover
+*.py,cover
+
+# Byte-compiled / optimized / DLL files
+*$py.class
+
+# FastAPI specific
+# .env file (for sensitive information like API keys)
+.env
+
+# VS Code (if using)
+.vscode/
+*.code-workspace
+
+# PyCharm (if using)
+.idea/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Build directories
+build/
+dist/

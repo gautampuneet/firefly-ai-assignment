@@ -1,35 +1,35 @@
+import json
 import os
-import time
-
 import aiohttp
 import asyncio
 import logging
-import csv
 import requests
+import random
 from bs4 import BeautifulSoup
-from collections import Counter
-from fastapi.responses import JSONResponse
+from collections import Counter, defaultdict
+from typing import Dict, List, Tuple, Set
+from src.common.constants import Configuration
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class UploadEssaysUseCase:
+class GetMaxWordCountsFromEssays:
 
-    def __init__(self, http_urls=None, batch_size=1000, max_concurrent_requests=10,
-                 output_file='filtered_words.csv'):
+    def __init__(self, http_urls: List[str],
+                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT):
         """Initialize the use case with parameters for processing URLs.
 
         Args:
             http_urls (list): List of URLs to process.
-            batch_size (int): Number of URLs to process in each batch to manage memory.
-            max_concurrent_requests (int): Maximum number of concurrent requests to control load.
-            output_file (str): Path to the CSV file where filtered words will be saved.
+            top_words(int): Numbers of top words to fetch
         """
-        self.http_urls = http_urls or []
-        self.word_banks_url = "https://raw.githubusercontent.com/dwyl/english-words/master/words.txt"
-        self.batch_size = batch_size  # Process URLs in batches to avoid memory overload
-        self.max_concurrent_requests = max_concurrent_requests  # Control concurrency
-        self.output_file = output_file  # File to store intermediate filtered results
+        self.http_urls = set(http_urls)
+        self.word_banks_url = Configuration.WORDS_BANK_URL
+        self.batch_size = Configuration.DEFAULT_PROCESSING_BATCH_SIZE
+        self.max_concurrent_requests = Configuration.DEFAULT_MAX_CONCURRENT_REQUESTS  # Control concurrency
+        self.top_words = top_words
+        self.cached_file = Configuration.PROCESSED_LINKS_JSON_FILE_PATH
+        self.already_processed_urls = self.read_json_file()
 
     async def execute(self):
         """Execute the main process of fetching and filtering words from the provided URLs.
@@ -44,32 +44,33 @@ class UploadEssaysUseCase:
         # Fetch the list of valid words
         word_banks = await self.get_word_banks()
 
+        # Get Already processed Urls
+        filtered_urls = [url for url in self.http_urls if url not in self.already_processed_urls]
         # Process URLs in batches
-        for batch_start in range(0, len(self.http_urls), self.batch_size):
-            batch_urls = self.http_urls[batch_start: batch_start + self.batch_size]
+        for batch_start in range(0, len(filtered_urls), self.batch_size):
+            processed_urls = {}
+            batch_urls = filtered_urls[batch_start: batch_start + self.batch_size]
             logging.info(f"Processing batch {batch_start // self.batch_size + 1}...")
-            filtered_words, failed_urls = await self.fetch_and_filter_batch(batch_urls, word_banks)
-            # Save filtered words to CSV
-            self.write_to_csv(filtered_words)
+            filtered_words, failed_urls = await self.fetch_and_filter_batch(batch_urls, word_banks, processed_urls)
+            self.write_to_json(processed_urls)
 
         # Read the filtered words from the output file and get the top 10
-        with open(self.output_file, 'r', newline='') as file:
-            words = file.read().replace('\r', '').splitlines()
-            top_words = self.get_top_10_words(words)
+        with open(self.cached_file, 'r') as file:
+            data = file.read()
+            if not data:
+                top_words = []
+            else:
+                data = json.loads(data)
+                top_words = self.get_top_words(data)
 
         # Prepare the response with top words and any failed URLs
         response = {
             "top_words": top_words,
             "failed_urls": failed_urls
         }
-        logging.info(f"Response: {response}")
-        os.remove(self.output_file)  # Clean up by removing the output file
-        return JSONResponse(
-            status_code=200,
-            content=response
-        )
+        logging.info(f"Response: {json.dumps(response, indent=4)}")
 
-    async def get_word_banks(self):
+    async def get_word_banks(self) -> set:
         """Fetch word banks asynchronously and store them in a set for quick lookup.
 
         Returns:
@@ -84,13 +85,16 @@ class UploadEssaysUseCase:
         # Return an empty set if fetching fails
         return set()
 
-    async def fetch_and_filter_batch(self, batch_urls, word_banks):
+    async def fetch_and_filter_batch(self,
+                                     batch_urls: List[str],
+                                     word_banks: Set[str],
+                                     processed_urls: Dict) -> Tuple[List[str], List]:
         """Fetch and filter a batch of URLs concurrently.
 
         Args:
-            batch_urls (list): List of URLs to fetch and filter.
+            batch_urls (List): List of URLs to fetch and filter.
             word_banks (set): Set of valid words to filter against.
-
+            processed_urls(Dict): To Keep Track which url has been processed
         Returns:
             tuple: A list of filtered words and a list of failed URLs.
         """
@@ -98,7 +102,12 @@ class UploadEssaysUseCase:
         semaphore = asyncio.Semaphore(self.max_concurrent_requests)  # Limit concurrent requests
         async with aiohttp.ClientSession() as session:
             # Create tasks for fetching and filtering each URL
-            tasks = [self.fetch_and_filter_content(url, word_banks, session, semaphore, failed_urls)
+            tasks = [self.fetch_and_filter_content(url,
+                                                   word_banks,
+                                                   session,
+                                                   semaphore,
+                                                   failed_urls,
+                                                   processed_urls)
                      for url in batch_urls]
             # Await all tasks to complete
             results = await asyncio.gather(*tasks)
@@ -106,7 +115,12 @@ class UploadEssaysUseCase:
             return [word.strip() for result in results for word in result if result], failed_urls
 
     @staticmethod
-    async def fetch_and_filter_content(url, word_bank, session, semaphore, failed_urls):
+    async def fetch_and_filter_content(url: str,
+                                       word_bank: Set[str],
+                                       session: aiohttp.ClientSession,
+                                       semaphore: asyncio.Semaphore,
+                                       failed_urls: List[str],
+                                       processed_urls: Dict) -> List[str]:
         """Fetch content of a single URL asynchronously and filter it against the word bank.
 
         Args:
@@ -115,63 +129,83 @@ class UploadEssaysUseCase:
             session (ClientSession): A session object for making HTTP requests.
             semaphore (Semaphore): A semaphore to limit the number of concurrent requests.
             failed_urls (list): List to track URLs that failed to fetch.
+            processed_urls(Dict): To Keep Track which url has been processed
 
         Returns:
             list: A list of filtered words from the URL content.
         """
-        async with semaphore:  # Limit concurrency
-            try:
-                async with session.get(url) as response:
-                    if response.status == 200:
+        async with semaphore:
+            retries = 0
+            while retries < Configuration.MAX_RETRY_FOR_BACKOFF:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 429:  # Too many requests
+                            raise asyncio.TimeoutError("Rate limited")
+
                         soup = BeautifulSoup(await response.text(), 'html.parser')
                         # Extract visible text
                         text = soup.get_text()
                         # Split text into words
                         words = text.split()
                         # Filter words on-the-fly
-                        return [word.strip() for word in words if word in word_bank]
-            except Exception as e:
-                # Log the error and track the failed URL
-                logging.info(f"Failed to fetch {url}: {e}")
-                failed_urls.append(url)
-        # Return an empty list if fetching fails
-        return []
+                        words = [word.strip() for word in words if word in word_bank]
+                        processed_urls[url] = Counter(words)
+                        return words
 
-    def write_to_csv(self, filtered_words):
+                except asyncio.TimeoutError as e:
+                    retries += 1
+                    wait_time = random.uniform(2, 2 ** retries)
+                    logging.warning(f"Rate Limit Error fetching {url}: {e}. Retrying in {wait_time:.2f} seconds...")
+                    await asyncio.sleep(wait_time)
+                except aiohttp.ClientError as e:
+                    logging.warning(f"Client Error fetching {url}: {e}")
+                    failed_urls.append(url)
+                    return []
+            logging.error(f"Failed to fetch {url} after {retries} retries.")
+
+    def write_to_json(self, processed_urls: Dict) -> None:
         """Write filtered words to a CSV file.
 
         Args:
-            filtered_words (list): List of words to write to the CSV file.
+            processed_urls(Dict): Processed Urls with their Values
         """
-        with open(self.output_file, mode='a', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            for word in filtered_words:
-                # Write each word as a new row
-                writer.writerow([word])
+        data = {}
+        if os.path.exists(self.cached_file):
+            with open(self.cached_file, 'r') as file:
+                data = json.load(file)
+
+        data.update(processed_urls)
+        with open(self.cached_file, 'w') as file:
+            json.dump(data, file, indent=4)
+
+    def read_json_file(self):
+        if os.path.exists(self.cached_file):
+            with open(self.cached_file, 'r') as file:
+                data = json.load(file)
+                return data
+        return {}
 
     @staticmethod
-    def get_top_10_words(word_list):
+    def aggregate_word_counts(data: Dict) -> Dict:
+        # Create a default dictionary to hold total word counts
+        total_counts = defaultdict(int)
+
+        # Iterate through each URL's word dictionary
+        for url, word_counts in data.items():
+            for word, count in word_counts.items():
+                total_counts[word] += count  # Aggregate counts
+        return total_counts
+
+    def get_top_words(self, words_list: Dict) -> Dict:
         """Get the top 10 most frequent words from the filtered content.
 
         Args:
-            word_list (list): List of words to analyze.
+            words_list (dict): Dict of words to analyze.
 
         Returns:
             dict: A dictionary of the top 10 words and their counts.
         """
         # Count occurrences of each word
-        word_counts = Counter(word_list)
-
-        # Return the 10 most common words
-        return dict(word_counts.most_common(10))
-
-
-if __name__ == "__main__":
-    start_time = time.time()
-    https_urls = [
-        "https://www.engadget.com/2019/08/24/bioprint-living-tissue-in-seconds/",
-        "https://www.engadget.com/2019/08/24/oneplus-7t-wide-angle-camera-leak/"
-    ]
-    upload_use_case = UploadEssaysUseCase(http_urls=https_urls)
-    asyncio.run(upload_use_case.execute())
-    logging.info(f"Finish time: {time.time() - start_time}")
+        total_counts = self.aggregate_word_counts(words_list)
+        sorted_words = sorted(total_counts.items(), key=lambda x: x[1], reverse=True)
+        return dict(sorted_words[:self.top_words])

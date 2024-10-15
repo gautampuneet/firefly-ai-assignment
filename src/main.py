@@ -1,56 +1,27 @@
-import pytz
-from fastapi import FastAPI
-from datetime import datetime
-from fastapi.responses import RedirectResponse, JSONResponse
-from src.routes import essay_router_v1
+import asyncio
+import sys
+import logging
+from src.usecases.essays import GetMaxWordCountsFromEssays
 
-firefly_app = FastAPI(
-    title="Firefly Assignment API",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url=None,
-    swagger_ui_parameters={"displayRequestDuration": True},
-    openapi_url="/openapi.json"
-)
-
-APPLICATION_STARTUP_TIME_IN_UTC = None
-
-
-firefly_app.include_router(essay_router_v1)
-
-
-@firefly_app.on_event("startup")
-def startup_event():
-    global APPLICATION_STARTUP_TIME_IN_UTC
-    APPLICATION_STARTUP_TIME_IN_UTC = datetime.now(pytz.utc)
-
-
-# Redirect root to health
-@firefly_app.get("/", tags=["base"], include_in_schema=False)
-async def main_route():
-    return RedirectResponse(url="/v1/health", status_code=301)
-
-
-@firefly_app.get("/v1/health", tags=["base"])
-async def main_route():
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "Decode Backend!",
-            "startup_time": str(APPLICATION_STARTUP_TIME_IN_UTC),
-            "duration": (
-                    datetime.now(pytz.utc) - APPLICATION_STARTUP_TIME_IN_UTC
-            ).total_seconds(),
-            "version": "1.0.0",
-        }
-    )
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 if __name__ == "__main__":
-    import uvicorn
+    firs_parameter = input("Please provide File Path: ")
+    top_words = input("Please provide number of top words to return: ")
+    try:
+        with open(firs_parameter, mode="r", newline='') as file:
+            https_urls = file.readlines()
+    except FileNotFoundError:
+        logging.info("We were not able to locate the file, Please provide correct path.")
+        sys.exit(1)
+    except Exception:
+        logging.info("We found some issue, reading the file, Please check file and try again.")
+        sys.exit(1)
 
-    uvicorn.run(
-        app="main:firefly_app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-    )
+    client_input = {
+        "http_urls": https_urls
+    }
+    if top_words:
+        client_input['top_words'] = int(top_words)
+    upload_use_case = GetMaxWordCountsFromEssays(**client_input)
+    asyncio.run(upload_use_case.execute())

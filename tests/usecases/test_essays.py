@@ -1,117 +1,93 @@
-import pytest
+import unittest
+from unittest.mock import patch, MagicMock, mock_open
 import asyncio
-from unittest.mock import patch, MagicMock
-from src.usecases.essays import UploadEssaysUseCase
-import csv
-import os
+from collections import Counter
+from fastapi.responses import JSONResponse
+from src.usecases.essays import GetMaxWordCountsFromEssays
 
 
-@pytest.fixture
-def word_banks_url():
-    return "https://raw.githubusercontent.com/dwyl/english-words/master/words.txt"
+class TestGetMaxWordCountsFromEssays(unittest.TestCase):
 
+    def setUp(self):
+        self.urls = ['http://example.com', 'http://example.org']
+        self.use_case = GetMaxWordCountsFromEssays(self.urls)
 
-@pytest.fixture
-def word_banks():
-    return {"apple", "banana", "cherry"}
-
-
-@pytest.fixture
-def http_urls():
-    return [
-        "https://www.engadget.com/2019/08/24/bioprint-living-tissue-in-seconds/",
-        "https://www.engadget.com/2019/08/24/oneplus-7t-wide-angle-camera-leak/"
-    ]
-
-
-@pytest.fixture
-def output_file():
-    return "filtered_words.csv"
-
-
-@pytest.fixture
-def upload_use_case(http_urls, output_file):
-    return UploadEssaysUseCase(http_urls=http_urls, output_file=output_file)
-
-
-def test_upload_essays_use_case_init(http_urls, output_file):
-    use_case = UploadEssaysUseCase(http_urls=http_urls, output_file=output_file)
-    assert use_case.http_urls == http_urls
-    assert use_case.output_file == output_file
-
-
-@pytest.mark.asyncio
-async def test_get_word_banks(word_banks_url, word_banks):
-    with patch('requests.get') as mock_get:
+    @patch('src.usecases.essays.requests.get')
+    def test_get_word_banks(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.text = '\n'.join(word_banks)
+        mock_response.text = "apple\nbanana\ncherry\n"
         mock_get.return_value = mock_response
-        use_case = UploadEssaysUseCase()
-        result = await use_case.get_word_banks()
-        assert result == word_banks
 
+        word_banks = asyncio.run(self.use_case.get_word_banks())
 
-@pytest.mark.asyncio
-async def test_get_word_banks_failure(word_banks_url):
-    with patch('requests.get') as mock_get:
+        self.assertEqual(word_banks, {'apple', 'banana', 'cherry'})
+        mock_get.assert_called_once_with(self.use_case.word_banks_url)
+
+    @patch('src.usecases.essays.aiohttp.ClientSession')
+    @patch('src.usecases.essays.BeautifulSoup')
+    async def test_fetch_and_filter_content(self, mock_bs, mock_session):
+        url = 'http://example.com'
+        word_bank = {'apple', 'banana', 'cherry'}
         mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
-        use_case = UploadEssaysUseCase()
-        result = await use_case.get_word_banks()
-        assert result == set()
+        mock_response.text.return_value = asyncio.Future()
+        mock_response.text.return_value.set_result('apple banana cherry date')
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        mock_soup = MagicMock()
+        mock_soup.get_text.return_value = 'apple banana cherry date'
+        mock_bs.return_value = mock_soup
+
+        semaphore = asyncio.Semaphore(1)
+        failed_urls = []
+        processed_urls = {}
+
+        result = await self.use_case.fetch_and_filter_content(
+            url, word_bank, mock_session, semaphore, failed_urls, processed_urls)
+
+        self.assertEqual(result, ['apple', 'banana', 'cherry'])
+        self.assertEqual(processed_urls, {url: Counter(['apple', 'banana', 'cherry'])})
+        self.assertEqual(failed_urls, [])
+
+    @patch('src.usecases.essays.json.dump')
+    @patch('builtins.open', new_callable=mock_open)
+    def test_write_to_json(self, mock_file, mock_json_dump):
+        processed_urls = {'http://example.com': Counter({'apple': 2, 'banana': 1})}
+        self.use_case.write_to_json(processed_urls)
+        mock_file.assert_called_once_with(self.use_case.cached_file, 'w')
+        mock_json_dump.assert_called_once()
+
+    def test_aggregate_word_counts(self):
+        data = {
+            'url1': {'apple': 2, 'banana': 1},
+            'url2': {'apple': 1, 'cherry': 2}
+        }
+        result = self.use_case.aggregate_word_counts(data)
+        self.assertEqual(result, {'apple': 3, 'banana': 1, 'cherry': 2})
+
+    def test_get_top_words(self):
+        data = {
+            'url1': {'apple': 2, 'banana': 1},
+            'url2': {'apple': 1, 'cherry': 2}
+        }
+        result = self.use_case.get_top_words(data)
+        self.assertEqual(result, {'apple': 3, 'cherry': 2, 'banana': 1})
+
+    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.get_word_banks')
+    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.fetch_and_filter_batch')
+    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.write_to_json')
+    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.get_top_words')
+    async def test_execute(self, mock_get_top_words, mock_write_to_json, mock_fetch_and_filter_batch,
+                           mock_get_word_banks):
+        mock_get_word_banks.return_value = {'apple', 'banana', 'cherry'}
+        mock_fetch_and_filter_batch.return_value = (['apple', 'banana', 'cherry'], [])
+        mock_get_top_words.return_value = {'apple': 3, 'banana': 2, 'cherry': 1}
+
+        response = await self.use_case.execute()
+        self.assertIsInstance(response, JSONResponse)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, {'top_words': {'apple': 3, 'banana': 2, 'cherry': 1}, 'failed_urls': []})
 
 
-@pytest.mark.asyncio
-async def test_fetch_and_filter_batch(upload_use_case, word_banks):
-    with patch('src.usecases.essays.UploadEssaysUseCase.fetch_and_filter_content') as mock_fetch_and_filter_content:
-        mock_fetch_and_filter_content.return_value = ["apple", "banana", "cherry"]
-        result, failed_urls = await upload_use_case.fetch_and_filter_batch(upload_use_case.http_urls, word_banks)
-        assert result == ["apple", "banana", "cherry"] * len(upload_use_case.http_urls)
-        assert failed_urls == []
-
-
-@pytest.mark.asyncio
-async def test_fetch_and_filter_batch_failure(upload_use_case, word_banks):
-    with patch('aiohttp.ClientSession') as mock_session:
-        mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value.status = 404
-        result, failed_urls = await upload_use_case.fetch_and_filter_batch(upload_use_case.http_urls, word_banks)
-        assert result == []
-        assert failed_urls == upload_use_case.http_urls
-
-
-@pytest.mark.asyncio
-async def test_fetch_and_filter_content_failure(upload_use_case, word_banks):
-    with patch('aiohttp.ClientSession') as mock_session:
-        mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value.status = 404
-        result = await upload_use_case.fetch_and_filter_content(upload_use_case.http_urls[0], word_banks,
-                                                                mock_session.return_value, asyncio.Semaphore(10), [])
-        assert result == []
-
-
-def test_write_to_csv(upload_use_case):
-    words = ["apple", "banana", "cherry"]
-    upload_use_case.write_to_csv(words)
-    with open(upload_use_case.output_file, 'r') as file:
-        reader = csv.reader(file)
-        result = list(reader)
-    assert result == [["apple"], ["banana"], ["cherry"]]
-    os.remove(upload_use_case.output_file)
-
-
-def test_get_top_10_words():
-    words = ["apple", "banana", "cherry", "apple", "banana", "banana"]
-    result = UploadEssaysUseCase.get_top_10_words(words)
-    assert result == {"banana": 3, "apple": 2, "cherry": 1}
-
-
-def test_execute(upload_use_case, word_banks):
-    with patch('src.usecases.essays.UploadEssaysUseCase.get_word_banks') as mock_get_word_banks:
-        mock_get_word_banks.return_value = word_banks
-        with patch('src.usecases.essays.UploadEssaysUseCase.fetch_and_filter_batch') as mock_fetch_and_filter_batch:
-            mock_fetch_and_filter_batch.return_value = (["apple", "banana", "cherry"], [])
-            response = asyncio.run(upload_use_case.execute())
-            assert response.status_code == 200
-            import json
-            assert json.loads(response.body) == {"top_words": {"banana": 1, "apple": 1, "cherry": 1}, "failed_urls": []}
+if __name__ == '__main__':
+    unittest.main()

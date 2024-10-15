@@ -38,6 +38,6 @@ pip install -r requirements.txt
 
 ### 4. To Execute the Code as a script
 ```bash
-python src/usecases/essays.py
+python src/main.py
 In the Input put the File Path and Number of Words you want
 ```

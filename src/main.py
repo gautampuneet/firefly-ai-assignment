@@ -2,7 +2,7 @@ import pytz
 from fastapi import FastAPI
 from datetime import datetime
 from fastapi.responses import RedirectResponse, JSONResponse
-from routes.essays import essay_router_v1
+from src.routes import essay_router_v1
 
 firefly_app = FastAPI(
     title="Firefly Assignment API",

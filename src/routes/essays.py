@@ -1,9 +1,9 @@
 from fastapi import APIRouter
 from fastapi.requests import Request
-from common.routes import EssayRoutes
-from schemas.essays import UploadEssays
+from src.common.routes import EssayRoutes
+from src.schemas.essays import UploadEssays
 
-from usecases.essays import UploadEssaysUseCase
+from src.usecases.essays import UploadEssaysUseCase
 
 essay_router_v1 = APIRouter(
     prefix="/v1",

@@ -8,7 +8,7 @@ import random
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple, Set
-from src.common.constants import Configuration
+from common.constants import Configuration
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

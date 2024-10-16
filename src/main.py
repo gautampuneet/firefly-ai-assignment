@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 if __name__ == "__main__":
     firs_parameter = input("Please provide File Path: ")
-    top_words = input("Please provide number of top words to return: ")
+    top_words = input("Please provide number of top words to return(Default 10): ")
     try:
         with open(firs_parameter, mode="r", newline='') as file:
             https_urls = file.readlines()

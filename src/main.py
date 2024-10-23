@@ -1,7 +1,7 @@
 import asyncio
 import sys
 import logging
-from usecases.essays import GetMaxWordCountsFromEssays
+from src.essays.usecases.essays import GetMaxWordCountsFromEssays
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

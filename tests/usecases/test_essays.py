@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock, AsyncMock
 import asyncio
 from collections import Counter
 
-from src.usecases.essays import (
+from src.essays.usecases.essays import (
     UploadEssaysFileUseCase,
     GetMaxWordCountsFromEssays,
     GetMaxCountsBasedOnID,
@@ -13,7 +13,7 @@ from src.usecases.essays import (
 
 class TestUploadEssaysFileUseCase(unittest.TestCase):
     def setUp(self):
-        self.test_urls = ["http://test1.com", "http://test2.com"]
+        self.test_urls = ["https://test1.com", "https://test2.com"]
         self.file_name = "test_file.txt"
         self.use_case = UploadEssaysFileUseCase(self.test_urls, self.file_name)
 
@@ -47,7 +47,7 @@ class TestUploadEssaysFileUseCase(unittest.TestCase):
     @patch('aiohttp.ClientSession')
     async def test_fetch_and_filter_content(self, mock_session):
         # Mock setup
-        url = "http://test.com"
+        url = "https://test.com"
         word_bank = {"test", "content"}
         mock_response = AsyncMock()
         mock_response.text.return_value = "<html>test content test</html>"
@@ -70,9 +70,9 @@ class TestUploadEssaysFileUseCase(unittest.TestCase):
         self.assertTrue(all(word in word_bank for word in result))
 
     @patch('aiohttp.ClientSession')
-    async def test_fetch_and_filter_batch(self, mock_session):
+    async def test_fetch_and_filter_batch(self):
         # Mock setup
-        batch_urls = ["http://test1.com", "http://test2.com"]
+        batch_urls = ["https://test1.com", "https://test2.com"]
         word_banks = {"test", "content"}
         processed_urls = {}
 
@@ -101,7 +101,7 @@ class TestUploadEssaysFileUseCase(unittest.TestCase):
 
 class TestGetMaxWordCountsFromEssays(unittest.TestCase):
     def setUp(self):
-        self.test_urls = ["http://test1.com", "http://test2.com"]
+        self.test_urls = ["https://test1.com", "https://test2.com"]
         self.file_name = "test_file.txt"
         self.use_case = GetMaxWordCountsFromEssays(self.test_urls, self.file_name)
 
@@ -139,17 +139,17 @@ class TestGetMaxCountsBasedOnID(unittest.TestCase):
         # Run the test
         result = self.use_case.check_status_in_file()
 
-        self.assertEqual(result, {})
+        self.assertEqual(result, (True, {'message': 'File id does not exist, Please verify and try again.'}))
 
     @patch('src.common.utility.read_json_file')
     def test_get_top_words(self, mock_read_json):
         # Mock setup
         mock_read_json.return_value = {
-            "http://test.com": Counter({"test": 2, "content": 1})
+            "https://test.com": Counter({"test": 2, "content": 1})
         }
 
         # Run the test
-        result = self.use_case.get_top_words(mock_read_json.return_value, ["http://test.com"])
+        result = self.use_case.get_top_words(mock_read_json.return_value, ["https://test.com"])
 
         self.assertIsInstance(result, dict)
         self.assertIn("test", result)

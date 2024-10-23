@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from common.constants import ServerConfiguration
-from routers.essays import essays_router_v1
+from src.essays.routers.essays import essays_router_v1
 
 # Initialize FastAPI app with custom title and version
 app = FastAPI(

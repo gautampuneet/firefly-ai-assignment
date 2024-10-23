@@ -1,13 +1,12 @@
 import uuid
-import asyncio
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse
 
-from src.common.routes import EssaysRoutes
-from src.common.constants import Configuration
-from src.common.error_messages import EssayErrorMessages
-from src.usecases.essays import GetMaxWordCountsFromEssays, GetMaxCountsBasedOnID, UploadEssaysFileUseCase
+from src.essays.common.routes import EssaysRoutes
+from src.essays.common.constants import EssayConfiguration
+from src.essays.common.error_messages import EssayErrorMessages
+from src.essays.usecases.essays import GetMaxWordCountsFromEssays, GetMaxCountsBasedOnID, UploadEssaysFileUseCase
 
 essays_router_v1 = APIRouter(
     prefix=EssaysRoutes.PREFIX,
@@ -41,7 +40,7 @@ async def get_max_occurrence_count(file: UploadFile = File(...)):
     http_urls = content.split("\n")
     file_name = file.filename
 
-    if len(http_urls) > Configuration.MAX_HTTP_URLS_SUPPORTED_FOR_API:
+    if len(http_urls) > EssayConfiguration.MAX_HTTP_URLS_SUPPORTED_FOR_API:
         return JSONResponse(status_code=400, content={"message": EssayErrorMessages.FILE_LIMIT_EXCEED})
     response = await GetMaxWordCountsFromEssays(
         http_urls=http_urls,

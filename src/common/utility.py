@@ -1,7 +1,6 @@
 import os
 import json
 from pathlib import Path
-from src.common.constants import Configuration
 
 
 def read_json_file(file_directory) -> dict:
@@ -12,8 +11,8 @@ def read_json_file(file_directory) -> dict:
     return {}
 
 
-def create_tmp_folder():
-    Path(Configuration.PROCESSED_LINKS_CACHED_FOLDER).mkdir(parents=True, exist_ok=True)
+def create_tmp_folder(folder_dir):
+    Path(folder_dir).mkdir(parents=True, exist_ok=True)
 
 
 def write_to_json(data: dict, file_path: str) -> None:

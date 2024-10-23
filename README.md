@@ -1,7 +1,5 @@
 # Firefly AI Assignment
 
-This project is a demonstration of a backend service designed to handle AI-related use cases. The current feature branch focuses on the implementation of server-side functionality, particularly around handling essays and other related operations.
-
 ## Table of Contents
 
 - [Project Structure](#project-structure)

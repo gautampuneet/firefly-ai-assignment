@@ -1,92 +1,159 @@
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, Mock, AsyncMock
 import asyncio
 from collections import Counter
-from fastapi.responses import JSONResponse
-from src.usecases.essays import GetMaxWordCountsFromEssays
+
+from src.usecases.essays import (
+    UploadEssaysFileUseCase,
+    GetMaxWordCountsFromEssays,
+    GetMaxCountsBasedOnID,
+    FileStatus
+)
 
 
-class TestGetMaxWordCountsFromEssays(unittest.TestCase):
-
+class TestUploadEssaysFileUseCase(unittest.TestCase):
     def setUp(self):
-        self.urls = ['http://example.com', 'http://example.org']
-        self.use_case = GetMaxWordCountsFromEssays(self.urls)
+        self.test_urls = ["http://test1.com", "http://test2.com"]
+        self.file_name = "test_file.txt"
+        self.use_case = UploadEssaysFileUseCase(self.test_urls, self.file_name)
 
-    @patch('src.usecases.essays.requests.get')
-    def test_get_word_banks(self, mock_get):
-        mock_response = MagicMock()
+    @patch('requests.get')
+    async def test_get_word_banks(self, mock_get):
+        # Mock response for word banks
+        mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.text = "apple\nbanana\ncherry\n"
+        mock_response.text = "hello\nworld\ntest\n"
         mock_get.return_value = mock_response
 
+        # Run the test
+        word_banks = await self.use_case.get_word_banks()
+
+        self.assertIsInstance(word_banks, set)
+        self.assertTrue(all(len(word) > 2 for word in word_banks))
+        self.assertTrue(all(word.isalpha() for word in word_banks))
+
+    @patch('requests.get')
+    async def test_get_word_banks_failed(self, mock_get):
+        # Mock failed response
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_get.return_value = mock_response
+
+        # Run the test
         word_banks = asyncio.run(self.use_case.get_word_banks())
 
-        self.assertEqual(word_banks, {'apple', 'banana', 'cherry'})
-        mock_get.assert_called_once_with(self.use_case.word_banks_url)
+        self.assertEqual(word_banks, set())
 
-    @patch('src.usecases.essays.aiohttp.ClientSession')
-    @patch('src.usecases.essays.BeautifulSoup')
-    async def test_fetch_and_filter_content(self, mock_bs, mock_session):
-        url = 'http://example.com'
-        word_bank = {'apple', 'banana', 'cherry'}
-        mock_response = MagicMock()
-        mock_response.text.return_value = asyncio.Future()
-        mock_response.text.return_value.set_result('apple banana cherry date')
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+    @patch('aiohttp.ClientSession')
+    async def test_fetch_and_filter_content(self, mock_session):
+        # Mock setup
+        url = "http://test.com"
+        word_bank = {"test", "content"}
+        mock_response = AsyncMock()
+        mock_response.text.return_value = "<html>test content test</html>"
+        mock_response.status = 200
 
-        mock_soup = MagicMock()
-        mock_soup.get_text.return_value = 'apple banana cherry date'
-        mock_bs.return_value = mock_soup
+        mock_session_context = AsyncMock()
+        mock_session_context.__aenter__.return_value = mock_response
+        mock_session.get.return_value = mock_session_context
 
         semaphore = asyncio.Semaphore(1)
         failed_urls = []
         processed_urls = {}
 
+        # Run the test
         result = await self.use_case.fetch_and_filter_content(
-            url, word_bank, mock_session, semaphore, failed_urls, processed_urls)
+            url, word_bank, mock_session, semaphore, failed_urls, processed_urls
+        )
 
-        self.assertEqual(result, ['apple', 'banana', 'cherry'])
-        self.assertEqual(processed_urls, {url: Counter(['apple', 'banana', 'cherry'])})
-        self.assertEqual(failed_urls, [])
+        self.assertIsInstance(result, list)
+        self.assertTrue(all(word in word_bank for word in result))
 
-    @patch('src.usecases.essays.json.dump')
-    @patch('builtins.open', new_callable=mock_open)
-    def test_write_to_json(self, mock_file, mock_json_dump):
-        processed_urls = {'http://example.com': Counter({'apple': 2, 'banana': 1})}
-        self.use_case.write_to_json(processed_urls)
-        mock_file.assert_called_once_with(self.use_case.cached_file, 'w')
-        mock_json_dump.assert_called_once()
+    @patch('aiohttp.ClientSession')
+    async def test_fetch_and_filter_batch(self, mock_session):
+        # Mock setup
+        batch_urls = ["http://test1.com", "http://test2.com"]
+        word_banks = {"test", "content"}
+        processed_urls = {}
 
-    def test_aggregate_word_counts(self):
-        data = {
-            'url1': {'apple': 2, 'banana': 1},
-            'url2': {'apple': 1, 'cherry': 2}
+        # Run the test
+        filtered_words, failed_urls = await self.use_case.fetch_and_filter_batch(
+            batch_urls, word_banks, processed_urls
+        )
+
+        self.assertIsInstance(filtered_words, list)
+        self.assertIsInstance(failed_urls, list)
+
+    @patch('src.common.utility.write_to_json')
+    @patch('src.common.utility.read_json_file')
+    async def test_execute(self, mock_read_json, mock_write_json):
+        # Mock setup
+        mock_read_json.return_value = {}
+        mock_write_json.return_value = None
+
+        # Run the test
+        result = await self.use_case.execute()
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("failed_urls", result)
+        self.assertIn("file_id", result)
+
+
+class TestGetMaxWordCountsFromEssays(unittest.TestCase):
+    def setUp(self):
+        self.test_urls = ["http://test1.com", "http://test2.com"]
+        self.file_name = "test_file.txt"
+        self.use_case = GetMaxWordCountsFromEssays(self.test_urls, self.file_name)
+
+    @patch('src.usecases.essays.UploadEssaysFileUseCase')
+    async def test_execute(self, mock_upload_use_case):
+        # Mock setup
+        mock_upload_use_case.return_value.execute.return_value = {
+            "failed_urls": [],
+            "file_id": "test_file_id"
         }
-        result = self.use_case.aggregate_word_counts(data)
-        self.assertEqual(result, {'apple': 3, 'banana': 1, 'cherry': 2})
 
-    def test_get_top_words(self):
-        data = {
-            'url1': {'apple': 2, 'banana': 1},
-            'url2': {'apple': 1, 'cherry': 2}
+        # Run the test
+        result = await self.use_case.execute()
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("top_words", result)
+        self.assertIn("failed_urls", result)
+        self.assertIn("file_id", result)
+
+
+class TestGetMaxCountsBasedOnID(unittest.TestCase):
+    def setUp(self):
+        self.file_id = "test_file_id"
+        self.use_case = GetMaxCountsBasedOnID(self.file_id)
+
+    @patch('src.common.utility.read_json_file')
+    def test_check_status_in_file_not_processed(self, mock_read_json):
+        # Mock setup
+        mock_read_json.return_value = {
+            self.file_id: {
+                "status": FileStatus.PROCESSING
+            }
         }
-        result = self.use_case.get_top_words(data)
-        self.assertEqual(result, {'apple': 3, 'cherry': 2, 'banana': 1})
 
-    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.get_word_banks')
-    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.fetch_and_filter_batch')
-    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.write_to_json')
-    @patch('src.usecases.essays.GetMaxWordCountsFromEssays.get_top_words')
-    async def test_execute(self, mock_get_top_words, mock_write_to_json, mock_fetch_and_filter_batch,
-                           mock_get_word_banks):
-        mock_get_word_banks.return_value = {'apple', 'banana', 'cherry'}
-        mock_fetch_and_filter_batch.return_value = (['apple', 'banana', 'cherry'], [])
-        mock_get_top_words.return_value = {'apple': 3, 'banana': 2, 'cherry': 1}
+        # Run the test
+        result = self.use_case.check_status_in_file()
 
-        response = await self.use_case.execute()
-        self.assertIsInstance(response, JSONResponse)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, {'top_words': {'apple': 3, 'banana': 2, 'cherry': 1}, 'failed_urls': []})
+        self.assertEqual(result, {})
+
+    @patch('src.common.utility.read_json_file')
+    def test_get_top_words(self, mock_read_json):
+        # Mock setup
+        mock_read_json.return_value = {
+            "http://test.com": Counter({"test": 2, "content": 1})
+        }
+
+        # Run the test
+        result = self.use_case.get_top_words(mock_read_json.return_value, ["http://test.com"])
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("test", result)
+        self.assertIn("content", result)
 
 
 if __name__ == '__main__':

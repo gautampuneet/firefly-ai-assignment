@@ -1,5 +1,6 @@
 import json
-import os
+import uuid
+
 import aiohttp
 import asyncio
 import logging
@@ -8,67 +9,80 @@ import random
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple, Set
-from common.constants import Configuration
+from src.common.constants import Configuration, FileStatus
+from src.common.utility import read_json_file, create_tmp_folder, write_to_json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class GetMaxWordCountsFromEssays:
+class UploadEssaysFileUseCase:
 
-    def __init__(self, http_urls: List[str],
-                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT):
-        """Initialize the use case with parameters for processing URLs.
-
-        Args:
-            http_urls (list): List of URLs to process.
-            top_words(int): Numbers of top words to fetch
-        """
+    def __init__(self, http_urls, file_name, file_id=None):
         self.http_urls = set(http_urls)
+        self.file_name = file_name
+        self.file_id = file_id
         self.word_banks_url = Configuration.WORDS_BANK_URL
         self.batch_size = Configuration.DEFAULT_PROCESSING_BATCH_SIZE
         self.max_concurrent_requests = Configuration.DEFAULT_MAX_CONCURRENT_REQUESTS  # Control concurrency
-        self.top_words = top_words
         self.cached_file = Configuration.PROCESSED_LINKS_JSON_FILE_PATH
-        self.already_processed_urls = self.read_json_file()
+        self.already_processed_urls = read_json_file(file_directory=self.cached_file)
 
     async def execute(self):
-        """Execute the main process of fetching and filtering words from the provided URLs.
-
-        This method processes the URLs in batches, filters the words against the word bank,
-        writes the filtered results to a CSV file, and retrieves the top 10 words from the results.
-
-        Returns:
-            JSONResponse: Contains the top words and any failed URLs.
-        """
         failed_urls = []
-        # Fetch the list of valid words
-        word_banks = await self.get_word_banks()
+        file_status = FileStatus.PROCESSING
+        try:
+            # Create Temp File to store data
+            create_tmp_folder()
 
-        # Get Already processed Urls
-        filtered_urls = [url for url in self.http_urls if url not in self.already_processed_urls]
-        # Process URLs in batches
-        for batch_start in range(0, len(filtered_urls), self.batch_size):
-            processed_urls = {}
-            batch_urls = filtered_urls[batch_start: batch_start + self.batch_size]
-            logging.info(f"Processing batch {batch_start // self.batch_size + 1}...")
-            filtered_words, failed_urls = await self.fetch_and_filter_batch(batch_urls, word_banks, processed_urls)
-            self.write_to_json(processed_urls)
+            logging.info(f"File processing has started.")
+            # Update the Status as processing first
+            file_id = str(uuid.uuid4()) if not self.file_id else self.file_id
+            processed_file_data = {
+                file_id: {
+                    "file_name": self.file_name,
+                    "status": FileStatus.PROCESSING,
+                    "http_urls": list(self.http_urls),
+                    "failed_urls": failed_urls
+                }
+            }
+            write_to_json(
+                file_path=Configuration.PROCESSED_FILES_JSON_FILE_PATH,
+                data=processed_file_data
+            )
 
-        # Read the filtered words from the output file and get the top 10
-        with open(self.cached_file, 'r') as file:
-            data = file.read()
-            if not data:
-                top_words = []
-            else:
-                data = json.loads(data)
-                top_words = self.get_top_words(data)
+            # Fetch the list of valid words
+            word_banks = await self.get_word_banks()
 
-        # Prepare the response with top words and any failed URLs
-        response = {
-            "top_words": top_words,
-            "failed_urls": failed_urls
-        }
-        logging.info(f"Response: {json.dumps(response, indent=4)}")
+            # Get Already processed Urls
+            filtered_urls = [url for url in self.http_urls if url and url not in self.already_processed_urls]
+            # Process URLs in batches
+            for batch_start in range(0, len(filtered_urls), self.batch_size):
+                processed_urls = {}
+                batch_urls = filtered_urls[batch_start: batch_start + self.batch_size]
+                logging.info(f"Processing batch {batch_start // self.batch_size + 1}...")
+                filtered_words, failed_urls = await self.fetch_and_filter_batch(batch_urls, word_banks, processed_urls)
+                write_to_json(data=processed_urls, file_path=self.cached_file)
+
+            file_status = FileStatus.PROCESSED
+        except Exception as ex:
+            logging.error(f"Error Processing the File, {ex}")
+            file_status = FileStatus.FAILED
+        finally:
+            # Update the File status in the DB
+            file_id = str(uuid.uuid4()) if not self.file_id else self.file_id
+            processed_file_data = {
+                file_id: {
+                    "file_name": self.file_name,
+                    "status": file_status,
+                    "http_urls": list(self.http_urls),
+                    "failed_urls": failed_urls
+                }
+            }
+            write_to_json(
+                file_path=Configuration.PROCESSED_FILES_JSON_FILE_PATH,
+                data=processed_file_data
+            )
+        return {"failed_urls": failed_urls, "file_id": file_id}
 
     async def get_word_banks(self) -> set:
         """Fetch word banks asynchronously and store them in a set for quick lookup.
@@ -159,53 +173,124 @@ class GetMaxWordCountsFromEssays:
                     await asyncio.sleep(wait_time)
                 except aiohttp.ClientError as e:
                     logging.warning(f"Client Error fetching {url}: {e}")
-                    failed_urls.append(url)
-                    return []
-            logging.error(f"Failed to fetch {url} after {retries} retries.")
+                    break
 
-    def write_to_json(self, processed_urls: Dict) -> None:
-        """Write filtered words to a CSV file.
+            logging.error(f"Failed to fetch {url} after {retries} retries.")
+            failed_urls.append(url)
+            return []
+
+
+class GetMaxWordCountsFromEssays:
+
+    def __init__(self,
+                 http_urls: List[str],
+                 file_name: str,
+                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT,
+                 file_id: str = None
+                 ):
+        """Initialize the use case with parameters for processing URLs.
 
         Args:
-            processed_urls(Dict): Processed Urls with their Values
+            http_urls (list): List of URLs to process.
+            top_words(int): Numbers of top words to fetch
+            file_name(str): Name of the file getting processed
+            file_id(str): File Id that we are processing
         """
-        data = {}
-        if os.path.exists(self.cached_file):
-            with open(self.cached_file, 'r') as file:
-                data = json.load(file)
+        self.http_urls = http_urls
+        self.top_words = top_words
+        self.file_name = file_name
+        self.file_id = file_id
+        self.cached_file = Configuration.PROCESSED_LINKS_JSON_FILE_PATH
 
-        data.update(processed_urls)
-        with open(self.cached_file, 'w') as file:
-            json.dump(data, file, indent=4)
+    async def execute(self):
+        """Execute the main process of fetching and filtering words from the provided URLs.
 
-    def read_json_file(self):
-        if os.path.exists(self.cached_file):
-            with open(self.cached_file, 'r') as file:
-                data = json.load(file)
-                return data
+        This method processes the URLs in batches, filters the words against the word bank,
+        writes the filtered results to a CSV file, and retrieves the top 10 words from the results.
+
+        Returns:
+            JSONResponse: Contains the top words and any failed URLs.
+        """
+
+        # Process the Urls and Save Every Word Count
+        response = await UploadEssaysFileUseCase(
+            http_urls=self.http_urls,
+            file_name=self.file_name
+        ).execute()
+
+        # Read the filtered words from the output file and get the top 10
+        final_response = GetMaxCountsBasedOnID(
+            file_id=response.get("file_id"),
+            top_words=self.top_words
+        ).execute()
+        logging.info(f"Response: {json.dumps(final_response, indent=4)}")
+        return final_response
+
+
+class GetMaxCountsBasedOnID:
+
+    def __init__(self,
+                 file_id: str,
+                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT):
+        self.file_id = file_id
+        self.top_words = top_words
+
+    def execute(self):
+        # Check File Status
+        file_data = self.check_status_in_file()
+        if not file_data:
+            return {
+                "message": "File is Still Getting Processed, Please check after sometime."
+            }
+        http_urls = file_data["http_urls"]
+        failed_urls = file_data["failed_urls"]
+
+        with open(Configuration.PROCESSED_LINKS_JSON_FILE_PATH, 'r') as file:
+            data = file.read()
+            if not data:
+                top_words = []
+            else:
+                data = json.loads(data)
+                top_words = self.get_top_words(data, http_urls)
+
+        # Prepare the response with top words and any failed URLs
+        response = {
+            "top_words": top_words,
+            "failed_urls": failed_urls,
+            "file_id": self.file_id
+        }
+        return response
+
+    def check_status_in_file(self) -> dict:
+        processed_files = read_json_file(file_directory=Configuration.PROCESSED_FILES_JSON_FILE_PATH)
+        if self.file_id in processed_files and processed_files[self.file_id].get("status") == FileStatus.PROCESSED:
+            return processed_files[self.file_id]
         return {}
 
     @staticmethod
-    def aggregate_word_counts(data: Dict) -> Dict:
+    def aggregate_word_counts(data: Dict, https_urls: List[str]) -> Dict:
         # Create a default dictionary to hold total word counts
         total_counts = defaultdict(int)
 
         # Iterate through each URL's word dictionary
         for url, word_counts in data.items():
+            if url not in https_urls:
+                continue
             for word, count in word_counts.items():
                 total_counts[word] += count  # Aggregate counts
         return total_counts
 
-    def get_top_words(self, words_list: Dict) -> Dict:
+    def get_top_words(self, words_list: Dict, https_urls: List[str]) -> Dict:
         """Get the top 10 most frequent words from the filtered content.
 
         Args:
             words_list (dict): Dict of words to analyze.
+            https_urls(list): List of http urls to filter
 
         Returns:
             dict: A dictionary of the top 10 words and their counts.
         """
         # Count occurrences of each word
-        total_counts = self.aggregate_word_counts(words_list)
+        total_counts = self.aggregate_word_counts(words_list, https_urls)
         sorted_words = sorted(total_counts.items(), key=lambda x: x[1], reverse=True)
         return dict(sorted_words[:self.top_words])

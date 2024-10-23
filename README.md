@@ -1,6 +1,19 @@
 # Firefly AI Assignment
 
-## Folder Structure
+This project is a demonstration of a backend service designed to handle AI-related use cases. The current feature branch focuses on the implementation of server-side functionality, particularly around handling essays and other related operations.
+
+## Table of Contents
+
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Testing](#testing)
+- [Technologies Used](#technologies-used)
+
+## Project Structure
+
+The project is structured as follows:
+
 1. src/ 
    * Contains all the source code for the application, organized into subdirectories for modularity.
 2. src/common/
@@ -15,29 +28,65 @@
    * The main documentation file for the repository, providing an overview, setup instructions, usage examples, and contribution guidelines.
 7. gitignore
    * Specifies which files and directories should be ignored by Git when committing changes, preventing unnecessary files from being tracked.
+8. src/server.py
+   * Servers as the entry point for the FastAPI web application.
+9. src/routes
+   * Includes all the routes that we will be using in this application
 
+## Installation
 
-## Setup Instructions
+### Prerequisites
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/gautampuneet/firefly-ai-assignment.git
-cd firefly-ai-assignment
-```
+- Python 3.10 or higher
+- Virtualenv (optional but recommended)
 
-### 2. Setup Virtual Env
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-```
+### Steps
 
-### 3. Install Requirements
-```bash
-pip install -r requirements.txt
-```
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/gautampuneet/firefly-ai-assignment.git
+   cd firefly-ai-assignment
+   ```
 
-### 4. To Execute the Code as a script
-```bash
-python src/main.py
-In the Input put the File Path and Number of Words you want
-```
+2. **Setup a Virtual Env(Optional)**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   ```
+
+3. **Install Requirements**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## Usage
+
+1. **To Execute the Code as a script**:
+   ```bash
+   python src/main.py
+   ```
+
+2. **To Execute the code as a server**:
+   ```bash
+   python src/server.py
+   ```
+   - Default Server Port:- 8000
+   - Swagger Docs:- http://localhost:8000/docs
+
+3. **Configuration**:
+   Ensure that any necessary constants or configurations are correctly defined in src/common/constants.py before running the application.
+
+## Testing
+
+### Unit tests for this project can be found in the tests/ directory. To run the tests, use:
+   ```bash
+   python -m unittest tests/usecases/test_essays.py
+   
+   ```
+
+## Technologies Used
+
+   * Python: Core Programming Language
+   * FastAPI(optional): For server handling.
+   * Unittest: For testing purposes
+   * Git: Version Control

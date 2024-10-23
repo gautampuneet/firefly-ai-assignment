@@ -9,7 +9,8 @@ import random
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple, Set
-from src.common.constants import Configuration, FileStatus
+from src.essays.common.constants import EssayConfiguration, FileStatus
+from src.essays.common.error_messages import EssayErrorMessages
 from src.common.utility import read_json_file, create_tmp_folder, write_to_json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,10 +22,10 @@ class UploadEssaysFileUseCase:
         self.http_urls = set(http_urls)
         self.file_name = file_name
         self.file_id = file_id
-        self.word_banks_url = Configuration.WORDS_BANK_URL
-        self.batch_size = Configuration.DEFAULT_PROCESSING_BATCH_SIZE
-        self.max_concurrent_requests = Configuration.DEFAULT_MAX_CONCURRENT_REQUESTS  # Control concurrency
-        self.cached_file = Configuration.PROCESSED_LINKS_JSON_FILE_PATH
+        self.word_banks_url = EssayConfiguration.WORDS_BANK_URL
+        self.batch_size = EssayConfiguration.DEFAULT_PROCESSING_BATCH_SIZE
+        self.max_concurrent_requests = EssayConfiguration.DEFAULT_MAX_CONCURRENT_REQUESTS  # Control concurrency
+        self.cached_file = EssayConfiguration.PROCESSED_LINKS_JSON_FILE_PATH
         self.already_processed_urls = read_json_file(file_directory=self.cached_file)
 
     async def execute(self):
@@ -32,7 +33,7 @@ class UploadEssaysFileUseCase:
         file_status = FileStatus.PROCESSING
         try:
             # Create Temp File to store data
-            create_tmp_folder()
+            create_tmp_folder(EssayConfiguration.PROCESSED_CACHED_FOLDER)
 
             logging.info(f"File processing has started.")
             # Update the Status as processing first
@@ -46,7 +47,7 @@ class UploadEssaysFileUseCase:
                 }
             }
             write_to_json(
-                file_path=Configuration.PROCESSED_FILES_JSON_FILE_PATH,
+                file_path=EssayConfiguration.PROCESSED_FILES_JSON_FILE_PATH,
                 data=processed_file_data
             )
 
@@ -79,7 +80,7 @@ class UploadEssaysFileUseCase:
                 }
             }
             write_to_json(
-                file_path=Configuration.PROCESSED_FILES_JSON_FILE_PATH,
+                file_path=EssayConfiguration.PROCESSED_FILES_JSON_FILE_PATH,
                 data=processed_file_data
             )
         return {"failed_urls": failed_urls, "file_id": file_id}
@@ -150,7 +151,7 @@ class UploadEssaysFileUseCase:
         """
         async with semaphore:
             retries = 0
-            while retries < Configuration.MAX_RETRY_FOR_BACKOFF:
+            while retries < EssayConfiguration.MAX_RETRY_FOR_BACKOFF:
                 try:
                     async with session.get(url) as response:
                         if response.status == 429:  # Too many requests
@@ -185,7 +186,7 @@ class GetMaxWordCountsFromEssays:
     def __init__(self,
                  http_urls: List[str],
                  file_name: str,
-                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT,
+                 top_words: int = EssayConfiguration.DEFAULT_TOP_WORDS_COUNT,
                  file_id: str = None
                  ):
         """Initialize the use case with parameters for processing URLs.
@@ -200,7 +201,7 @@ class GetMaxWordCountsFromEssays:
         self.top_words = top_words
         self.file_name = file_name
         self.file_id = file_id
-        self.cached_file = Configuration.PROCESSED_LINKS_JSON_FILE_PATH
+        self.cached_file = EssayConfiguration.PROCESSED_LINKS_JSON_FILE_PATH
 
     async def execute(self):
         """Execute the main process of fetching and filtering words from the provided URLs.
@@ -231,21 +232,19 @@ class GetMaxCountsBasedOnID:
 
     def __init__(self,
                  file_id: str,
-                 top_words: int = Configuration.DEFAULT_TOP_WORDS_COUNT):
+                 top_words: int = EssayConfiguration.DEFAULT_TOP_WORDS_COUNT):
         self.file_id = file_id
         self.top_words = top_words
 
     def execute(self):
         # Check File Status
-        file_data = self.check_status_in_file()
-        if not file_data:
-            return {
-                "message": "File is Still Getting Processed, Please check after sometime."
-            }
-        http_urls = file_data["http_urls"]
-        failed_urls = file_data["failed_urls"]
+        error, content = self.check_status_in_file()
+        if error:
+            return content
+        http_urls = content["http_urls"]
+        failed_urls = content["failed_urls"]
 
-        with open(Configuration.PROCESSED_LINKS_JSON_FILE_PATH, 'r') as file:
+        with open(EssayConfiguration.PROCESSED_LINKS_JSON_FILE_PATH, 'r') as file:
             data = file.read()
             if not data:
                 top_words = []
@@ -261,11 +260,13 @@ class GetMaxCountsBasedOnID:
         }
         return response
 
-    def check_status_in_file(self) -> dict:
-        processed_files = read_json_file(file_directory=Configuration.PROCESSED_FILES_JSON_FILE_PATH)
+    def check_status_in_file(self) -> Tuple[bool, dict]:
+        processed_files = read_json_file(file_directory=EssayConfiguration.PROCESSED_FILES_JSON_FILE_PATH)
         if self.file_id in processed_files and processed_files[self.file_id].get("status") == FileStatus.PROCESSED:
-            return processed_files[self.file_id]
-        return {}
+            return False, processed_files[self.file_id]
+        elif self.file_id not in processed_files:
+            return True, {"message": EssayErrorMessages.FILE_DOES_NOT_EXIST}
+        return True, {"message": EssayErrorMessages.FILE_STILL_GETTING_PROCESSED}
 
     @staticmethod
     def aggregate_word_counts(data: Dict, https_urls: List[str]) -> Dict:

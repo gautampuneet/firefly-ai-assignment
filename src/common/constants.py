@@ -1,22 +1,4 @@
-class Configuration:
-    WORDS_BANK_URL = "https://raw.githubusercontent.com/dwyl/english-words/master/words.txt"
-    DEFAULT_TOP_WORDS_COUNT = 10
-    PROCESSED_LINKS_CACHED_FOLDER = "tmp"
-    PROCESSED_LINKS_JSON_FILE_PATH = f"{PROCESSED_LINKS_CACHED_FOLDER}/processed_links.json"
-    PROCESSED_FILES_JSON_FILE_PATH = f"{PROCESSED_LINKS_CACHED_FOLDER}/processed_files.json"
-    DEFAULT_PROCESSING_BATCH_SIZE = 1000
-    DEFAULT_MAX_CONCURRENT_REQUESTS = 10
-    MAX_RETRY_FOR_BACKOFF = 5
-    MAX_HTTP_URLS_SUPPORTED_FOR_API = 20
-
-
 class ServerConfiguration:
     SERVER_PORT = 8000
     SERVER_HOST = "0.0.0.0"
     LOG_LEVEL = "DEBUG"
-
-
-class FileStatus:
-    PROCESSED = "PROCESSED"
-    PROCESSING = "PROCESSING"
-    FAILED = "FAILED"

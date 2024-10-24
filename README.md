@@ -16,8 +16,8 @@ The project is structured as follows:
    * Contains all the source code for the application, organized into subdirectories for modularity.
 2. src/common/
    * Contains shared utility functions or classes that can be used across different modules, promoting code reusability.
-3. src/usecases/ 
-   * Contains example scripts and practical implementations demonstrating how to use the features of the application. These scripts serve as a guide for users to understand functionality and integration.
+3. usecases
+   * Contains Business level logic for the application.
 4. src/main.py 
    * Serves as the entry point for the application. It calls the main method to be called.
 5. requirements.txt 
@@ -27,8 +27,8 @@ The project is structured as follows:
 7. gitignore
    * Specifies which files and directories should be ignored by Git when committing changes, preventing unnecessary files from being tracked.
 8. src/server.py
-   * Servers as the entry point for the FastAPI web application.
-9. src/routes
+   * Serves as the entry point for the FastAPI web application.
+9. routes
    * Includes all the routes that we will be using in this application
 
 ## Installation

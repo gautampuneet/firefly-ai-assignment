@@ -58,20 +58,27 @@ The project is structured as follows:
    ```
 
 ## Usage
-
-1. **To Execute the Code as a script**:
+1. **Run Server with Docker**:
+   ```bash
+   docker build -t firefly .
+   docker run -p 8000:8000 firefly
+   
+   - Default Server Port:- 8000
+   - Swagger Docs:- http://localhost:8000/docs
+   ```
+2. **To Execute the Code as a script**:
    ```bash
    python src/main.py
    ```
 
-2. **To Execute the code as a server**:
+3. **To Execute the code as a server**:
    ```bash
    python src/server.py
    ```
    - Default Server Port:- 8000
    - Swagger Docs:- http://localhost:8000/docs
 
-3. **Configuration**:
+4. **Configuration**:
    Ensure that any necessary constants or configurations are correctly defined in src/common/constants.py before running the application.
 
 ## Testing

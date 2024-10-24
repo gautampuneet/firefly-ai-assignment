@@ -95,7 +95,7 @@ class UploadEssaysFileUseCase:
         if response.status_code == 200:
             word_list = response.text.splitlines()
             # Filter valid words
-            return {word.strip() for word in word_list if word.isalpha() and len(word) > 2}
+            return {word.strip().lower() for word in word_list if word.isalpha() and len(word) > 2}
 
         # Return an empty set if fetching fails
         return set()
@@ -163,7 +163,7 @@ class UploadEssaysFileUseCase:
                         # Split text into words
                         words = text.split()
                         # Filter words on-the-fly
-                        words = [word.strip() for word in words if word in word_bank]
+                        words = [word.strip().lower() for word in words if word in word_bank]
                         processed_urls[url] = Counter(words)
                         return words
 
@@ -232,11 +232,13 @@ class GetMaxCountsBasedOnID:
 
     def __init__(self,
                  file_id: str,
-                 top_words: int = EssayConfiguration.DEFAULT_TOP_WORDS_COUNT):
+                 top_words: int):
         self.file_id = file_id
         self.top_words = top_words
 
     def execute(self):
+        if not self.top_words:
+            self.top_words = EssayConfiguration.DEFAULT_TOP_WORDS_COUNT
         # Check File Status
         error, content = self.check_status_in_file()
         if error:
